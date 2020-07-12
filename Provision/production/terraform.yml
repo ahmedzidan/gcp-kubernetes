@@ -1,0 +1,67 @@
+version: "3.2"
+
+services:
+  terraform-get:
+    image: "hashicorp/terraform:0.12.8"
+    environment:
+      - "SSH_AUTH_SOCK=/tmp/.ssh"
+      - "TF_PLUGIN_CACHE_DIR=/tmp/plugin-cache"
+    volumes:
+      - "${SSH_AUTH_SOCK}:/tmp/.ssh"
+      - "${HOME}/.terraform.d/plugin-cache:/tmp/plugin-cache"
+      - "${PWD}:/production"
+    command: >
+      get
+    working_dir: "/production"
+
+  terraform-init:
+    image: "hashicorp/terraform:0.12.8"
+    environment:
+      - "SSH_AUTH_SOCK=/tmp/.ssh"
+      - "TF_PLUGIN_CACHE_DIR=/tmp/plugin-cache"
+    volumes:
+      - "${SSH_AUTH_SOCK}:/tmp/.ssh"
+      - "${HOME}/.terraform.d/plugin-cache:/tmp/plugin-cache"
+      - "${PWD}:/production"
+    command: >
+      init -force-copy -input=false
+    working_dir: "/production"
+
+  terraform-plan:
+    image: "hashicorp/terraform:0.12.8"
+    environment:
+      - "SSH_AUTH_SOCK=/tmp/.ssh"
+      - "TF_PLUGIN_CACHE_DIR=/tmp/plugin-cache"
+    volumes:
+      - "${SSH_AUTH_SOCK}:/tmp/.ssh"
+      - "${HOME}/.terraform.d/plugin-cache:/tmp/plugin-cache"
+      - "${PWD}:/production"
+    command: >
+      plan
+    working_dir: "/production"
+
+  terraform-apply:
+    image: "hashicorp/terraform:0.12.8"
+    environment:
+      - "SSH_AUTH_SOCK=/tmp/.ssh"
+      - "TF_PLUGIN_CACHE_DIR=/tmp/plugin-cache"
+    volumes:
+      - "${SSH_AUTH_SOCK}:/tmp/.ssh"
+      - "${HOME}/.terraform.d/plugin-cache:/tmp/plugin-cache"
+      - "${PWD}:/production"
+    command: >
+      apply -auto-approve -var="app_env=production"
+    working_dir: "/production"
+
+  terraform-destroy:
+    image: "hashicorp/terraform:0.12.8"
+    environment:
+      - "SSH_AUTH_SOCK=/tmp/.ssh"
+      - "TF_PLUGIN_CACHE_DIR=/tmp/plugin-cache"
+    volumes:
+      - "${SSH_AUTH_SOCK}:/tmp/.ssh"
+      - "${HOME}/.terraform.d/plugin-cache:/tmp/plugin-cache"
+      - "${PWD}:/production"
+    command: >
+      destroy -auto-approve -var="app_env=production"
+    working_dir: "/production"

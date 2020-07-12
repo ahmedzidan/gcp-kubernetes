@@ -1,1 +1,3 @@
 .idea
+Provision/production/.terraform
+Provision/production/credentials.json
