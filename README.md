@@ -6,15 +6,13 @@
 
 - **Http/Https LB** : load balancer to redirect the traffic based on the url.
  
-- **Private GKE** for serving static web pages.
-
-- **Private GKE** for serving the backend processing.
+- **Private GKE** contains two virtual clusters "nameSpaces"
+- **virtual cluster** for serving the backend processing.
+- **virtual cluster** for serving the static pages.
 
 - **Private subnet** For GKE nodes.
 
 - **NAT GATEWAY** for the nodes to be able to connect to the internet without having public IP.
-
-- **Public Subnet** for the NAT GateWay.
 
 - **Redis** keeps clients connectivity state.
 
@@ -30,7 +28,18 @@
 
 - **Kibana** : for visualization.
 
-
+### provision infrastructure
+- The structure of my files like the following. 
+- ``provider.tf``: contains the provider info in our case is GCP.
+- ``main.tf``: call modules, and data-sources to create all resources.
+- ``variables.tf``: contains declarations of variables used in main.tf
+- ``outputs.tf``: contains outputs from the resources created in main.tf
+- ``locals.tf``: contains the locals values.
+- To provision infrastructure you can follow the follwoing steps
+  1- ``cd provision/production``
+  2- ``terraform init -backend-config="bucket=remote-bucket-name"`` 
+  2- ``terraform apply -auto-approve -var="app_env=production" -var="project_id=testproject-id" -var="app_version=v1.0.0"`` 
+  3- You should get the LB public ip of the nginx service, later will add http lb in front of this service.
 ### High availability in GKE cluster.
 
 - The cluster can be Multi-zonal cluster, so it will be high available in all the zone in the region. 
@@ -57,37 +66,10 @@
 - Enable ``Container Analysis`` for performs vulnerability scans for images in Container Registry.
 
 
-### Provision infrastructure using terraform.
-
-- The structure of my files like the following. 
-- ``provider.tf``: contains the provider info in our case is GCP.
-- ``main.tf``: call modules, and data-sources to create all resources.
-- ``variables.tf``: contains declarations of variables used in main.tf
-- ``outputs.tf``: contains outputs from the resources created in main.tf
-- ``locals.tf``: contains the locals values.
-- to provision the infrastructure use the Yaml file 
-```
-cd Provision/production
-docker-compose  -f terraform.yml run --rm terraform-init
-docker-compose  -f terraform.yml run --rm terraform-plan
-docker-compose  -f terraform.yml run --rm terraform-apply
-docker-compose  -f Provision/production/terraform.yml run --rm terraform-destroy
-```
-
 ### Application environment containers.
-
-- **Dev environment**
-  - we will use the following containers (nginx, nodejs, mysql, redis). 
-  - Log can be in file so we don't need to Store logs in ES.
-  - We don't need to provision infrastructure for dev environment as well.
-  
-- **Staging and Production**
-
-  - Staging should be similar as production although we can make the resources smaller to save money.
-  - In staging and production we don't need to build containers, we need to pull them from ``Container Registry``  
-  - The following container will be used (nginx, nodejs).
-  - We will not use ``mySQL`` and ``Redis`` as a containers.
-  - Logs should be centralized to ELK, we don't need to keep any log in inside the machine. 
+- please read it from inside the application folder 
+- [nginx static pages](https://github.com/ahmedzidan/gcp-kubernetes/tree/master/staticPage)
+- [nodejs api](https://github.com/ahmedzidan/gcp-kubernetes/tree/master/nodeJsApi)
 
 ### Application deployment.
 

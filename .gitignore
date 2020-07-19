@@ -1,3 +1,4 @@
 .idea
 Provision/production/.terraform
 Provision/production/credentials.json
+nodeJsApi/app/node_modules

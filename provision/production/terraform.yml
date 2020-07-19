@@ -37,7 +37,7 @@ services:
       - "${HOME}/.terraform.d/plugin-cache:/tmp/plugin-cache"
       - "${PWD}:/production"
     command: >
-      plan
+      plan -lock=false
     working_dir: "/production"
 
   terraform-apply:
@@ -50,7 +50,7 @@ services:
       - "${HOME}/.terraform.d/plugin-cache:/tmp/plugin-cache"
       - "${PWD}:/production"
     command: >
-      apply -auto-approve -var="app_env=production"
+      apply -auto-approve -var="app_env=production" -lock=false
     working_dir: "/production"
 
   terraform-destroy:
@@ -63,5 +63,5 @@ services:
       - "${HOME}/.terraform.d/plugin-cache:/tmp/plugin-cache"
       - "${PWD}:/production"
     command: >
-      destroy -auto-approve -var="app_env=production"
+      destroy -auto-approve -var="app_env=production" -lock=false
     working_dir: "/production"
