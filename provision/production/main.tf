@@ -1,6 +1,6 @@
 terraform {
   backend "gcs" {
-    bucket = "iprice-gke-tf"
+
     prefix  = "terraform3/test-app3"
     credentials = "credentials.json"
   }
@@ -120,7 +120,7 @@ resource "google_container_cluster" "private" {
   depends_on = [module.gcp-network]
 }
 
-resource "google_container_node_pool" "nginx_cluster_nodes" {
+resource "google_container_node_pool" "private_cluster_nodes" {
   name               = "my-node-pool-test"
   location           = var.region
   cluster            = google_container_cluster.private.name
@@ -156,6 +156,7 @@ provider "kubernetes" {
 ///////////////////////////////////////////////////////////////////////////
 // deploy nginx under nginx-app namespace
 //////////////////////////////////////////////////////////////////////////
+/*
 resource "kubernetes_namespace" "nginx-app" {
   metadata {
     annotations = {
@@ -172,23 +173,24 @@ resource "kubernetes_namespace" "nginx-app" {
     delete = "20m"
   }
 }
-
+*/
 resource "kubernetes_pod" "nginx" {
   metadata {
     name = "nginx-static-page"
     labels = {
-      App = "nginx"
+      app = var.nginx_service_name
     }
-    namespace = kubernetes_namespace.nginx-app.id
+   // namespace = kubernetes_namespace.nginx-app.id
+    namespace = kubernetes_namespace.nodejs-app.id
   }
 
   spec {
     container {
-      image = "gcr.io/google-samples/hello-app:1.0"
-      name  = "example"
+      image = "${var.nginx_image_url}:${var.nginx_app_version}"
+      name  = "nginx-static-pages"
 
       port {
-        container_port = 80
+        container_port = 8080
       }
     }
   }
@@ -196,36 +198,39 @@ resource "kubernetes_pod" "nginx" {
     create = "10m"
     delete = "10m"
   }
+  depends_on = [google_container_node_pool.private_cluster_nodes, kubernetes_namespace.nodejs-app]
 }
 
 resource "kubernetes_service" "nginx" {
   metadata {
-    name = "nginx-app-service"
-    namespace = kubernetes_namespace.nginx-app.id
+    name = var.nginx_service_name
+    //namespace = kubernetes_namespace.nginx-app.id
+    namespace = kubernetes_namespace.nodejs-app.id
   }
 
   spec {
     selector = {
-      app = kubernetes_pod.nginx.metadata[0].labels.App
+      app = var.nginx_service_name
     }
 
     session_affinity = "ClientIP"
 
     port {
       protocol    = "TCP"
-      port        = 8080
-      target_port = 80
+      port        = 80
+      target_port = 8080
       node_port   = var.node_port
     }
     type = "NodePort"
   }
 
-  depends_on = [google_container_node_pool.nginx_cluster_nodes]
+  depends_on = [google_container_node_pool.private_cluster_nodes]
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
 // deploy nodejs application to another namespace "virtual cluster"
 //////////////////////////////////////////////////////////////////////////////////////
+
 resource "kubernetes_namespace" "nodejs-app" {
   metadata {
     annotations = {
@@ -245,20 +250,19 @@ resource "kubernetes_namespace" "nodejs-app" {
 
 resource "kubernetes_pod" "nodejs" {
   metadata {
-    name = "nodejs-api"
+    name = var.api_pods_name
     labels = {
-      App = "nodejs-api"
+      app = var.api_service_name
     }
     namespace = kubernetes_namespace.nodejs-app.id
   }
 
   spec {
     container {
-      image = "gcr.io/google-samples/hello-app:1.0"
+      image = "${var.nodejs_image_url}:${var.node_app_version}"
       name  = "nodejs-api"
-
       port {
-        container_port = 80
+        container_port = 8080
       }
     }
   }
@@ -270,13 +274,13 @@ resource "kubernetes_pod" "nodejs" {
 
 resource "kubernetes_service" "nodejs-service" {
   metadata {
-    name = "nodejs-api-service"
+    name = var.api_service_name
     namespace = kubernetes_namespace.nodejs-app.id
   }
 
   spec {
     selector = {
-      app = kubernetes_pod.nodejs.metadata[0].labels.App
+      app = var.api_service_name
     }
 
     session_affinity = "ClientIP"
@@ -284,114 +288,50 @@ resource "kubernetes_service" "nodejs-service" {
     port {
       protocol    = "TCP"
       port        = 80
-      target_port = 80
+      target_port = 8080
       node_port   = var.nodejs_node_port
     }
 
     type = "NodePort"
   }
 
-  depends_on = [google_container_node_pool.nginx_cluster_nodes]
+  depends_on = [google_container_node_pool.private_cluster_nodes]
 }
 //////////////////////////////////////////////////////////////////////////////////////////////////////
-//http LB
+//ingress+http LB
 //////////////////////////////////////////////////////////////////////////////////////////////////////
-module "gce-lb-http" {
-  source            = "GoogleCloudPlatform/lb-http/google"
-  version           = "~> 3.1"
-  project           = var.project_id
-  name              = "http-lb"
-  firewall_networks = [var.network_name]
+resource "kubernetes_ingress" "app_ingress" {
+  metadata {
+    name = "app-ingress"
+    namespace = kubernetes_namespace.nodejs-app.id
+  }
 
-  target_tags = [var.node_tag]
+  spec {
+    backend {
+      service_name = var.nginx_service_name
+      service_port = 80
+    }
 
-  // Use custom url map.
-  url_map        = google_compute_url_map.my-url-map.self_link
-  create_url_map = false
-  backends = {
-    default = {
-      description                     = null
-      protocol                        = "HTTP"
-      port                            = var.node_port
-      port_name                       = var.port_name
-      timeout_sec                     = 10
-      connection_draining_timeout_sec = null
-      enable_cdn                      = false
-      session_affinity                = null
-      affinity_cookie_ttl_sec         = null
+    rule {
+      http {
+        path {
+          backend {
+            service_name = var.nginx_service_name
+            service_port = 80
+          }
 
-      health_check = {
-        check_interval_sec  = 5
-        timeout_sec         = 5
-        healthy_threshold   = 2
-        unhealthy_threshold = 2
-        request_path        = "/"
-        port                = var.node_port
-        host                = null
-        logging             = true
+          path = "/*"
+        }
+
+        path {
+          backend {
+            service_name = var.api_service_name
+            service_port = 80
+          }
+          path = "/api/*"
+        }
       }
-
-      log_config = {
-        enable      = true
-        sample_rate = 1.0
-      }
-
-      groups = [
-        {
-          # Each node pool instance group should be added to the backend.
-          group                        = replace(element(google_container_node_pool.nginx_cluster_nodes.instance_group_urls, 1), "Manager", "")
-          balancing_mode               = null
-          capacity_scaler              = null
-          description                  = null
-          max_connections              = null
-          max_connections_per_instance = null
-          max_connections_per_endpoint = null
-          max_rate                     = null
-          max_rate_per_instance        = null
-          max_rate_per_endpoint        = null
-          max_utilization              = null
-        },
-        {
-          # Each node pool instance group should be added to the backend.
-          group                        = replace(element(google_container_node_pool.nginx_cluster_nodes.instance_group_urls, 2), "Manager", "")
-          balancing_mode               = null
-          capacity_scaler              = null
-          description                  = null
-          max_connections              = null
-          max_connections_per_instance = null
-          max_connections_per_endpoint = null
-          max_rate                     = null
-          max_rate_per_instance        = null
-          max_rate_per_endpoint        = null
-          max_utilization              = null
-        },
-      ]
     }
   }
-
+  wait_for_load_balancer = true
 }
-
-resource "google_compute_url_map" "my-url-map" {
-  // note that this is the name of the load balancer
-  name            = "test-map"
-  default_service = module.gce-lb-http.backend_services["default"].self_link
-
-  host_rule {
-    hosts        = ["*"]
-    path_matcher = "allpaths"
-  }
-
-  path_matcher {
-    name            = "allpaths"
-    default_service = module.gce-lb-http.backend_services["default"].self_link
-
-   /* path_rule {
-      paths = [
-        "/api",
-        "/api/*"
-      ]
-      service = kubernetes_service.nodejs-service.spec[0].external_ips
-    }*/
-  }
-}
-
