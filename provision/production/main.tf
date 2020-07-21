@@ -1,6 +1,7 @@
 terraform {
   backend "gcs" {
-    prefix  = "terraform/test-airasia"
+    bucket = "iprice-gke-tf"
+    prefix  = "terraform3/test-app3"
     credentials = "credentials.json"
   }
 }
@@ -133,6 +134,7 @@ resource "google_container_node_pool" "nginx_cluster_nodes" {
     disk_size_gb = 10
     disk_type          = "pd-standard"
     image_type         = "COS"
+    tags = [var.node_tag]
     oauth_scopes = [
       "https://www.googleapis.com/auth/logging.write",
       "https://www.googleapis.com/auth/monitoring",
@@ -140,9 +142,7 @@ resource "google_container_node_pool" "nginx_cluster_nodes" {
   }
   depends_on = [module.gcp-network]
 }
-///////////////////////////////////////////////////////////////////////////
-// deploy nginx under nginx-app namespace
-//////////////////////////////////////////////////////////////////////////
+
 data "google_client_config" "default" {
 }
 provider "kubernetes" {
@@ -153,7 +153,9 @@ provider "kubernetes" {
   client_key             = base64decode(google_container_cluster.private.master_auth.0.client_key)
   cluster_ca_certificate = base64decode(google_container_cluster.private.master_auth.0.cluster_ca_certificate)
 }
-
+///////////////////////////////////////////////////////////////////////////
+// deploy nginx under nginx-app namespace
+//////////////////////////////////////////////////////////////////////////
 resource "kubernetes_namespace" "nginx-app" {
   metadata {
     annotations = {
@@ -167,7 +169,7 @@ resource "kubernetes_namespace" "nginx-app" {
     name = "nginx-static-pages"
   }
   timeouts {
-    delete = "10m"
+    delete = "20m"
   }
 }
 
@@ -196,9 +198,10 @@ resource "kubernetes_pod" "nginx" {
   }
 }
 
-resource "kubernetes_service" "nginx-example" {
+resource "kubernetes_service" "nginx" {
   metadata {
     name = "nginx-app-service"
+    namespace = kubernetes_namespace.nginx-app.id
   }
 
   spec {
@@ -209,10 +212,12 @@ resource "kubernetes_service" "nginx-example" {
     session_affinity = "ClientIP"
 
     port {
-      port        = 80
+      protocol    = "TCP"
+      port        = 8080
       target_port = 80
+      node_port   = var.node_port
     }
-    type = "LoadBalancer"
+    type = "NodePort"
   }
 
   depends_on = [google_container_node_pool.nginx_cluster_nodes]
@@ -221,3 +226,172 @@ resource "kubernetes_service" "nginx-example" {
 ///////////////////////////////////////////////////////////////////////////////////////
 // deploy nodejs application to another namespace "virtual cluster"
 //////////////////////////////////////////////////////////////////////////////////////
+resource "kubernetes_namespace" "nodejs-app" {
+  metadata {
+    annotations = {
+      name = "nodejs-api"
+    }
+
+    labels = {
+      app = "nodejs-api"
+    }
+
+    name = "nodejs-api"
+  }
+  timeouts {
+    delete = "20m"
+  }
+}
+
+resource "kubernetes_pod" "nodejs" {
+  metadata {
+    name = "nodejs-api"
+    labels = {
+      App = "nodejs-api"
+    }
+    namespace = kubernetes_namespace.nodejs-app.id
+  }
+
+  spec {
+    container {
+      image = "gcr.io/google-samples/hello-app:1.0"
+      name  = "nodejs-api"
+
+      port {
+        container_port = 80
+      }
+    }
+  }
+  timeouts {
+    create = "10m"
+    delete = "10m"
+  }
+}
+
+resource "kubernetes_service" "nodejs-service" {
+  metadata {
+    name = "nodejs-api-service"
+    namespace = kubernetes_namespace.nodejs-app.id
+  }
+
+  spec {
+    selector = {
+      app = kubernetes_pod.nodejs.metadata[0].labels.App
+    }
+
+    session_affinity = "ClientIP"
+
+    port {
+      protocol    = "TCP"
+      port        = 80
+      target_port = 80
+      node_port   = var.nodejs_node_port
+    }
+
+    type = "NodePort"
+  }
+
+  depends_on = [google_container_node_pool.nginx_cluster_nodes]
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+//http LB
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+module "gce-lb-http" {
+  source            = "GoogleCloudPlatform/lb-http/google"
+  version           = "~> 3.1"
+  project           = var.project_id
+  name              = "http-lb"
+  firewall_networks = [var.network_name]
+
+  target_tags = [var.node_tag]
+
+  // Use custom url map.
+  url_map        = google_compute_url_map.my-url-map.self_link
+  create_url_map = false
+  backends = {
+    default = {
+      description                     = null
+      protocol                        = "HTTP"
+      port                            = var.node_port
+      port_name                       = var.port_name
+      timeout_sec                     = 10
+      connection_draining_timeout_sec = null
+      enable_cdn                      = false
+      session_affinity                = null
+      affinity_cookie_ttl_sec         = null
+
+      health_check = {
+        check_interval_sec  = 5
+        timeout_sec         = 5
+        healthy_threshold   = 2
+        unhealthy_threshold = 2
+        request_path        = "/"
+        port                = var.node_port
+        host                = null
+        logging             = true
+      }
+
+      log_config = {
+        enable      = true
+        sample_rate = 1.0
+      }
+
+      groups = [
+        {
+          # Each node pool instance group should be added to the backend.
+          group                        = replace(element(google_container_node_pool.nginx_cluster_nodes.instance_group_urls, 1), "Manager", "")
+          balancing_mode               = null
+          capacity_scaler              = null
+          description                  = null
+          max_connections              = null
+          max_connections_per_instance = null
+          max_connections_per_endpoint = null
+          max_rate                     = null
+          max_rate_per_instance        = null
+          max_rate_per_endpoint        = null
+          max_utilization              = null
+        },
+        {
+          # Each node pool instance group should be added to the backend.
+          group                        = replace(element(google_container_node_pool.nginx_cluster_nodes.instance_group_urls, 2), "Manager", "")
+          balancing_mode               = null
+          capacity_scaler              = null
+          description                  = null
+          max_connections              = null
+          max_connections_per_instance = null
+          max_connections_per_endpoint = null
+          max_rate                     = null
+          max_rate_per_instance        = null
+          max_rate_per_endpoint        = null
+          max_utilization              = null
+        },
+      ]
+    }
+  }
+
+}
+
+resource "google_compute_url_map" "my-url-map" {
+  // note that this is the name of the load balancer
+  name            = "test-map"
+  default_service = module.gce-lb-http.backend_services["default"].self_link
+
+  host_rule {
+    hosts        = ["*"]
+    path_matcher = "allpaths"
+  }
+
+  path_matcher {
+    name            = "allpaths"
+    default_service = module.gce-lb-http.backend_services["default"].self_link
+
+   /* path_rule {
+      paths = [
+        "/api",
+        "/api/*"
+      ]
+      service = kubernetes_service.nodejs-service.spec[0].external_ips
+    }*/
+  }
+}
+

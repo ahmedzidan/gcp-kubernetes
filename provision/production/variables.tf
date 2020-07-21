@@ -63,9 +63,18 @@ variable "app_env" {
 variable "node_port" {
   default = "30000"
 }
+variable "nodejs_node_port" {
+  default = "30002"
+}
 
 variable "port_name" {
   default = "http"
+}
+
+variable "node_tag" {
+  type = string
+  description = "node tag"
+  default = "lb-https-gke"
 }
 
 variable "project_id" {
