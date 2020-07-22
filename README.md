@@ -35,11 +35,13 @@
 - ``variables.tf``: contains declarations of variables used in main.tf
 - ``outputs.tf``: contains outputs from the resources created in main.tf
 - ``locals.tf``: contains the locals values.
-- To provision infrastructure you can follow the follwoing steps
+- To provision infrastructure and deploy a sample App
   1- ``cd provision/production``
   2- ``terraform init -backend-config="bucket=remote-bucket-name"`` 
-  2- ``terraform apply -auto-approve -var="app_env=production" -var="project_id=testproject-id" -var="app_version=v1.0.0"`` 
-  3- You should get the LB public ip of the nginx service, later will add http lb in front of this service.
+  2- ``terraform apply -auto-approve -var="app_env=production" -var="project_id=testproject-id" `` 
+  3- You should get the LB public ip.
+  4- visit the public ip for example http://35.201.104.234/ you should see "Hello, world!"
+  4- visit the public ip for example http://35.201.104.234/api you should see "Hello Kubernetes!"
 ### High availability in GKE cluster.
 
 - The cluster can be Multi-zonal cluster, so it will be high available in all the zone in the region. 

@@ -1,7 +1,6 @@
 terraform {
   backend "gcs" {
-
-    prefix  = "terraform3/test-app3"
+    prefix  = "terraform4/test-app4"
     credentials = "credentials.json"
   }
 }
